@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Job Application Tracker</title>
+  <!-- Tailwind Play CDN for styling -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          boxShadow: {
+            soft: '0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)'
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Icons -->
+  <link href="https://unpkg.com/lucide-static@0.469.0/font/lucide.css" rel="stylesheet">
+  <!-- PapaParse (CSV) -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <!-- SheetJS (Excel) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    .scrollbar-thin::-webkit-scrollbar { height: 8px; width: 8px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+    a[data-link] { color: #0ea5e9; text-decoration: underline; }
+    .chip { @apply inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium border; }
+    .chip-applied { @apply bg-sky-50 text-sky-700 border-sky-200; }
+    .chip-interviewing { @apply bg-amber-50 text-amber-700 border-amber-200; }
+    .chip-rejected { @apply bg-rose-50 text-rose-700 border-rose-200; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+  <header class="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="h-10 w-10 rounded-2xl bg-sky-500 text-white grid place-content-center shadow-soft"><i class="i-lucide-briefcase"></i></div>
+        <div>
+          <h1 class="text-xl sm:text-2xl font-semibold">Job Application Tracker</h1>
+          <p class="text-xs text-slate-500">No backend needed — import, track, and export as CSV/Excel.</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="btnExportCSV" class="px-3 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-sm">Export CSV</button>
+        <button id="btnExportXLSX" class="px-3 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-sm">Export Excel</button>
+        <button id="btnSaveLocal" class="px-3 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-sm" title="Save to this browser">Save</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <!-- Controls Row -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+      <section class="lg:col-span-9 bg-white border border-slate-200 rounded-2xl p-4 shadow-soft">
+        <div class="flex flex-wrap gap-3 items-center justify-between">
+          <div class="flex items-center gap-2">
+            <label for="fileInput" class="px-3 py-2 rounded-xl bg-slate-900 text-white text-sm cursor-pointer hover:bg-slate-800">
+              <i class="i-lucide-upload mr-1"></i> Import CSV/Excel
+            </label>
+            <input id="fileInput" type="file" accept=".csv,.xlsx,.xls" class="hidden" />
+            <button id="btnNew" class="px-3 py-2 rounded-xl bg-sky-600 text-white text-sm hover:bg-sky-500"><i class="i-lucide-plus mr-1"></i> New Entry</button>
+            <button id="btnSample" class="px-3 py-2 rounded-xl bg-white border border-slate-200 text-sm hover:bg-slate-50">Load Sample</button>
+            <button id="btnClear" class="px-3 py-2 rounded-xl bg-white border border-rose-200 text-rose-600 text-sm hover:bg-rose-50">Clear All</button>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="relative">
+              <i class="i-lucide-search absolute left-3 top-2.5 text-slate-400"></i>
+              <input id="search" type="text" placeholder="Search company, title, location…" class="pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 w-72" />
+            </div>
+            <select id="statusFilter" class="px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500">
+              <option value="">All Statuses</option>
+              <option>Applied</option>
+              <option>Interviewing</option>
+              <option>Rejected</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div id="stats" class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3"></div>
+
+        <!-- Table -->
+        <div class="mt-4 overflow-x-auto scrollbar-thin">
+          <table class="min-w-full text-sm">
+            <thead>
+              <tr class="text-left text-slate-600">
+                <th class="pb-2 pr-4 cursor-pointer" data-sort="Company Name">Company <i class="i-lucide-arrow-up-down inline-block ml-1"></i></th>
+                <th class="pb-2 pr-4 cursor-pointer" data-sort="Job Title">Job Title <i class="i-lucide-arrow-up-down inline-block ml-1"></i></th>
+                <th class="pb-2 pr-4">Job Link</th>
+                <th class="pb-2 pr-4 cursor-pointer" data-sort="Year of Exp">Year of Exp <i class="i-lucide-arrow-up-down inline-block ml-1"></i></th>
+                <th class="pb-2 pr-4 cursor-pointer" data-sort="Location">Location <i class="i-lucide-arrow-up-down inline-block ml-1"></i></th>
+                <th class="pb-2 pr-4 cursor-pointer" data-sort="Status">Status <i class="i-lucide-arrow-up-down inline-block ml-1"></i></th>
+                <th class="pb-2 pr-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="tbody" class="align-top"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Sidebar Tips -->
+      <aside class="lg:col-span-3 space-y-4">
+        <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-soft">
+          <h3 class="font-semibold mb-2">How to use</h3>
+          <ol class="text-sm list-decimal pl-5 space-y-1 text-slate-600">
+            <li>Click <span class="font-medium">Import CSV/Excel</span> to upload an existing file, or hit <span class="font-medium">New Entry</span>.</li>
+            <li>Edit inline via the <span class="font-medium">Edit</span> button; changes auto-apply to the table.</li>
+            <li>Use <span class="font-medium">Search</span> and <span class="font-medium">Status filter</span> to narrow results.</li>
+            <li>Click <span class="font-medium">Export</span> to download CSV or Excel.</li>
+            <li>Click <span class="font-medium">Save</span> to persist to your browser (localStorage).</li>
+          </ol>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-soft">
+          <h3 class="font-semibold mb-2">Columns</h3>
+          <ul class="text-sm space-y-1 text-slate-600">
+            <li><b>Company Name</b></li>
+            <li><b>Job Title</b></li>
+            <li><b>Job Link</b> (URL)</li>
+            <li><b>Year of Exp</b> (number)</li>
+            <li><b>Location</b></li>
+            <li><b>Status</b> — Applied / Interviewing / Rejected</li>
+          </ul>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <!-- Modal -->
+  <div id="modal" class="fixed inset-0 z-40 hidden">
+    <div class="absolute inset-0 bg-slate-900/50"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+      <form id="modalForm" class="w-full max-w-lg bg-white rounded-2xl p-5 border border-slate-200 shadow-soft">
+        <div class="flex items-start justify-between mb-3">
+          <h2 id="modalTitle" class="text-lg font-semibold">New Entry</h2>
+          <button type="button" id="modalClose" class="text-slate-500 hover:text-slate-700"><i class="i-lucide-x"></i></button>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm mb-1">Company Name</label>
+            <input name="Company Name" class="w-full px-3 py-2 rounded-xl border border-slate-200" required />
+          </div>
+          <div>
+            <label class="block text-sm mb-1">Job Title</label>
+            <input name="Job Title" class="w-full px-3 py-2 rounded-xl border border-slate-200" required />
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block text-sm mb-1">Job Link</label>
+            <input name="Job Link" type="url" placeholder="https://..." class="w-full px-3 py-2 rounded-xl border border-slate-200" />
+          </div>
+          <div>
+            <label class="block text-sm mb-1">Year of Exp</label>
+            <input name="Year of Exp" type="number" min="0" step="0.5" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
+          </div>
+          <div>
+            <label class="block text-sm mb-1">Location</label>
+            <input name="Location" class="w-full px-3 py-2 rounded-xl border border-slate-200" />
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block text-sm mb-1">Status</label>
+            <select name="Status" class="w-full px-3 py-2 rounded-xl border border-slate-200">
+              <option>Applied</option>
+              <option>Interviewing</option>
+              <option>Rejected</option>
+            </select>
+          </div>
+        </div>
+        <div class="mt-4 flex items-center justify-end gap-2">
+          <button type="button" id="modalCancel" class="px-3 py-2 rounded-xl border border-slate-200">Cancel</button>
+          <button type="submit" class="px-3 py-2 rounded-xl bg-sky-600 text-white">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <footer class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-10 text-center text-xs text-slate-500">
+    <div class="mt-6">Built as a static SPA — safe for GitHub Pages.</div>
+  </footer>
+
+  <script>
+    // --- State ---
+    const STORAGE_KEY = 'jobTrackerData_v1';
+    let data = [];
+    let filtered = [];
+    let sortState = { key: null, dir: 1 };
+    let editingIndex = null; // index in data
+
+    const requiredCols = [
+      'Company Name',
+      'Job Title',
+      'Job Link',
+      'Year of Exp',
+      'Location',
+      'Status'
+    ];
+
+    const statusColors = {
+      'Applied': 'chip chip-applied',
+      'Interviewing': 'chip chip-interviewing',
+      'Rejected': 'chip chip-rejected'
+    };
+
+    // --- Utils ---
+    const by = (k) => (a, b) => {
+      const av = (a?.[k] ?? '').toString().toLowerCase();
+      const bv = (b?.[k] ?? '').toString().toLowerCase();
+      if (!isNaN(parseFloat(av)) && !isNaN(parseFloat(bv))) {
+        return (parseFloat(av) - parseFloat(bv)) * sortState.dir;
+      }
+      return av.localeCompare(bv) * sortState.dir;
+    };
+
+    function normalizeRow(row) {
+      const o = {};
+      for (const col of requiredCols) {
+        o[col] = row[col] ?? '';
+      }
+      // Cleanups
+      if (o['Job Link'] && typeof o['Job Link'] === 'string') {
+        o['Job Link'] = o['Job Link'].trim();
+      }
+      if (o['Status'] === '') o['Status'] = 'Applied';
+      return o;
+    }
+
+    function saveToLocal() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      toast('Saved to this browser.');
+    }
+
+    function loadFromLocal() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) data = JSON.parse(raw);
+      } catch {}
+    }
+
+    function toast(msg) {
+      const t = document.createElement('div');
+      t.className = 'fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2 rounded-xl shadow-soft z-50';
+      t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(() => t.remove(), 2000);
+    }
+
+    function renderStats() {
+      const total = data.length;
+      const applied = data.filter(d => d['Status'] === 'Applied').length;
+      const interviewing = data.filter(d => d['Status'] === 'Interviewing').length;
+      const rejected = data.filter(d => d['Status'] === 'Rejected').length;
+      const html = `
+        <div class="p-3 border border-slate-200 rounded-xl bg-slate-50">
+          <div class="text-xs text-slate-500">Total</div>
+          <div class="text-xl font-semibold">${total}</div>
+        </div>
+        <div class="p-3 border border-slate-200 rounded-xl bg-slate-50">
+          <div class="text-xs text-slate-500">Applied</div>
+          <div class="text-xl font-semibold">${applied}</div>
+        </div>
+        <div class="p-3 border border-slate-200 rounded-xl bg-slate-50">
+          <div class="text-xs text-slate-500">Interviewing</div>
+          <div class="text-xl font-semibold">${interviewing}</div>
+        </div>
+        <div class="p-3 border border-slate-200 rounded-xl bg-slate-50">
+          <div class="text-xs text-slate-500">Rejected</div>
+          <div class="text-xl font-semibold">${rejected}</div>
+        </div>`;
+      document.getElementById('stats').innerHTML = html;
+    }
+
+    function render() {
+      // Filtering
+      const q = document.getElementById('search').value.trim().toLowerCase();
+      const s = document.getElementById('statusFilter').value;
+      filtered = data.filter(row => {
+        const hay = (row['Company Name'] + ' ' + row['Job Title'] + ' ' + row['Location']).toLowerCase();
+        const matchQ = q === '' || hay.includes(q);
+        const matchS = !s || row['Status'] === s;
+        return matchQ && matchS;
+      });
+
+      if (sortState.key) filtered.sort(by(sortState.key));
+
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML = '';
+      for (let i = 0; i < filtered.length; i++) {
+        const row = filtered[i];
+        const idx = data.indexOf(row);
+        const tr = document.createElement('tr');
+        tr.className = 'border-t border-slate-100 hover:bg-slate-50';
+        tr.innerHTML = `
+          <td class="py-3 pr-4 font-medium">${escapeHtml(row['Company Name'])}</td>
+          <td class="py-3 pr-4">${escapeHtml(row['Job Title'])}</td>
+          <td class="py-3 pr-4">
+            ${row['Job Link'] ? `<a data-link href="${escapeAttr(row['Job Link'])}" target="_blank" rel="noopener">Open</a>` : '<span class="text-slate-400">—</span>'}
+          </td>
+          <td class="py-3 pr-4">${escapeHtml(row['Year of Exp'])}</td>
+          <td class="py-3 pr-4">${escapeHtml(row['Location'])}</td>
+          <td class="py-3 pr-4">
+            <span class="${statusColors[row['Status']] || 'chip'}">${escapeHtml(row['Status'] || '')}</span>
+          </td>
+          <td class="py-3 pr-2">
+            <div class="flex items-center gap-2">
+              <button class="px-2 py-1 rounded-lg border border-slate-200 hover:bg-white text-xs" data-edit="${idx}"><i class="i-lucide-pencil"></i> Edit</button>
+              <button class="px-2 py-1 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs" data-del="${idx}"><i class="i-lucide-trash-2"></i> Delete</button>
+            </div>
+          </td>`;
+        tbody.appendChild(tr);
+      }
+
+      renderStats();
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"]+/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    }
+    function escapeAttr(s) {
+      return String(s ?? '').replace(/["]+/g, '&quot;');
+    }
+
+    // Sorting
+    document.querySelectorAll('th[data-sort]').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.getAttribute('data-sort');
+        if (sortState.key === key) sortState.dir *= -1; else { sortState.key = key; sortState.dir = 1; }
+        render();
+      });
+    });
+
+    // Filters
+    document.getElementById('search').addEventListener('input', render);
+    document.getElementById('statusFilter').addEventListener('change', render);
+
+    // Actions
+    document.getElementById('btnNew').addEventListener('click', () => openModal());
+    document.getElementById('btnSample').addEventListener('click', () => {
+      data = [
+        { 'Company Name':'OpenAI', 'Job Title':'Associate PM', 'Job Link':'https://careers.example/openai', 'Year of Exp':'1', 'Location':'San Francisco, CA', 'Status':'Applied' },
+        { 'Company Name':'Google', 'Job Title':'Product Marketing Manager', 'Job Link':'', 'Year of Exp':'2', 'Location':'New York, NY', 'Status':'Interviewing' },
+        { 'Company Name':'Twilio', 'Job Title':'GTM Engineer', 'Job Link':'https://careers.example/twilio', 'Year of Exp':'3', 'Location':'Remote', 'Status':'Rejected' }
+      ];
+      render();
+      toast('Loaded sample data.');
+    });
+    document.getElementById('btnClear').addEventListener('click', () => {
+      if (confirm('Clear all rows?')) {
+        data = [];
+        render();
+      }
+    });
+    document.getElementById('btnSaveLocal').addEventListener('click', saveToLocal);
+
+    // Import
+    document.getElementById('fileInput').addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const name = file.name.toLowerCase();
+      try {
+        if (name.endsWith('.csv')) {
+          await importCSV(file);
+        } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+          await importXLSX(file);
+        } else {
+          alert('Unsupported file type. Please upload .csv, .xlsx, or .xls');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Error importing file. Ensure headers match expected columns.');
+      } finally {
+        e.target.value = '';
+      }
+    });
+
+    function normalizeHeader(h) {
+      return h?.toString().trim().toLowerCase();
+    }
+
+    function mapHeaders(obj) {
+      // Try to map similar headers to required ones (case-insensitive)
+      const map = {};
+      for (const key in obj) {
+        const k = normalizeHeader(key);
+        if (k.includes('company')) map['Company Name'] = obj[key];
+        if (k.includes('title')) map['Job Title'] = obj[key];
+        if (k.includes('link') || k.includes('url')) map['Job Link'] = obj[key];
+        if (k.includes('year') || k.includes('exp')) map['Year of Exp'] = obj[key];
+        if (k.includes('location')) map['Location'] = obj[key];
+        if (k.includes('status')) map['Status'] = obj[key];
+      }
+      return map;
+    }
+
+    async function importCSV(file) {
+      return new Promise((resolve, reject) => {
+        Papa.parse(file, {
+          header: true,
+          skipEmptyLines: true,
+          complete: (results) => {
+            const rows = results.data.map(r => normalizeRow(Object.keys(r).length ? { ...mapHeaders(r), ...r } : r));
+            data = rows.filter(r => requiredCols.some(c => r[c]));
+            render();
+            toast('CSV imported.');
+            resolve();
+          },
+          error: reject
+        });
+      });
+    }
+
+    async function importXLSX(file) {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      const rows = json.map(r => normalizeRow({ ...mapHeaders(r), ...r }));
+      data = rows.filter(r => requiredCols.some(c => r[c]));
+      render();
+      toast('Excel imported.');
+    }
+
+    // Export
+    document.getElementById('btnExportCSV').addEventListener('click', () => {
+      const csv = Papa.unparse({ fields: requiredCols, data: data.map(r => requiredCols.map(c => r[c])) });
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'job_applications.csv'; a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    document.getElementById('btnExportXLSX').addEventListener('click', () => {
+      const ws = XLSX.utils.json_to_sheet(data.map(r => normalizeRow(r)));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Applications');
+      XLSX.writeFile(wb, 'job_applications.xlsx');
+    });
+
+    // Modal Logic
+    const modal = document.getElementById('modal');
+    const modalForm = document.getElementById('modalForm');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalClose = document.getElementById('modalClose');
+    const modalCancel = document.getElementById('modalCancel');
+
+    function openModal(row = null, idx = null) {
+      editingIndex = idx;
+      modalTitle.textContent = row ? 'Edit Entry' : 'New Entry';
+      // populate
+      requiredCols.forEach(c => {
+        const el = modalForm.elements[c];
+        if (el) el.value = row ? (row[c] ?? '') : (c === 'Status' ? 'Applied' : '');
+      });
+      modal.classList.remove('hidden');
+      modal.querySelector('input,select').focus();
+    }
+
+    function closeModal() { modal.classList.add('hidden'); }
+
+    modalClose.addEventListener('click', closeModal);
+    modalCancel.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+    modalForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const row = {};
+      for (const col of requiredCols) {
+        row[col] = modalForm.elements[col]?.value?.trim() ?? '';
+      }
+      if (!row['Company Name'] || !row['Job Title']) {
+        alert('Company Name and Job Title are required.');
+        return;
+      }
+      if (editingIndex != null) {
+        data[editingIndex] = row;
+        toast('Entry updated.');
+      } else {
+        data.push(row);
+        toast('Entry added.');
+      }
+      closeModal();
+      render();
+    });
+
+    // Row Actions (Edit/Delete)
+    document.getElementById('tbody').addEventListener('click', (e) => {
+      const editIdx = e.target.closest('button')?.getAttribute('data-edit');
+      const delIdx = e.target.closest('button')?.getAttribute('data-del');
+      if (editIdx != null) {
+        openModal(data[Number(editIdx)], Number(editIdx));
+      }
+      if (delIdx != null) {
+        if (confirm('Delete this row?')) { data.splice(Number(delIdx), 1); render(); }
+      }
+    });
+
+    // Init
+    loadFromLocal();
+    render();
+  </script>
+</body>
+</html>
